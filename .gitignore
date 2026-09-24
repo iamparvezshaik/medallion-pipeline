@@ -1,0 +1,40 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Secret environment files
+.env
+.env.*
+!.env.example
+
+# IDE settings
+.vscode/
+.idea/
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Chroma database
+.chroma/
+
+# Data files
+# Keep landing/ tracked for sample data
+**/data/**/*.csv
+**/data/**/*.parquet
+!**/data/landing/**
+!**/data/landing/**/*.csv
+!**/data/landing/**/*.parquet
+
+# Generated reports and audit logs
+data/reports/
+audit_logs/
+
+# OS files
+.DS_Store
+Thumbs.db
