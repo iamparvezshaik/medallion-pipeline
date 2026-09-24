@@ -56,23 +56,9 @@ for directory in ALL_DIRS:
 # API keys and model settings
 # --------------------------------------------------------------------------
 
-# Anthropic (Claude) - primary/default provider for this project.
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
-
-# Google Gemini - optional provider.
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-
-# Groq - optional provider.
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-
-# OpenAI - optional provider.
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-
-# GitHub Models - optional provider. GITHUB_MODEL uses the GA endpoint's
+# GitHub Models - primary provider for this project (this is the endpoint
+# behind a GitHub Copilot/Models token, which is what this project is
+# actually validated against). GITHUB_MODEL uses the GA endpoint's
 # publisher-prefixed naming (e.g. "openai/gpt-4.1-mini"), so GITHUB_BASE_URL
 # must point at the matching GA inference endpoint (models.github.ai) --
 # NOT the older preview endpoint (models.inference.ai.azure.com), which used
@@ -80,6 +66,11 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_MODEL = os.getenv("GITHUB_MODEL", "openai/gpt-4.1-mini")
 GITHUB_BASE_URL = "https://models.github.ai/inference"
+
+# Anthropic (Claude) - fallback provider, used if a native Anthropic key is
+# configured instead of a GitHub token.
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 
 # --------------------------------------------------------------------------
 # LLM provider auto-detection
@@ -108,21 +99,25 @@ def _detect_llm_provider() -> str:
     1. If LLM_PROVIDER is explicitly set in the environment, use that.
     2. Otherwise, pick the first provider (in preference order) that has a
        REAL API key configured (not just an unfilled .env.example
-       placeholder): anthropic > github. These are the two providers
-       core.llm.make_llm() actually implements -- there's no point
-       detecting a provider (e.g. a filled-in GROQ_API_KEY) that the
+       placeholder): github > anthropic. GitHub Models (the endpoint behind
+       a GitHub Copilot token) is checked first because that's the key this
+       project is actually validated against; a native Anthropic key is the
+       fallback if that's what's available instead. These are the two
+       providers core.llm.make_llm() actually implements -- there's no
+       point detecting a provider (e.g. a filled-in GROQ_API_KEY) that the
        pipeline can't actually build a client for.
-    3. If nothing is configured, fall back to "anthropic" (the project
-       default) so downstream code has a consistent value to check against.
+    3. If nothing is configured, fall back to "anthropic" (still usable as
+       long as a real key gets filled in before the pipeline actually runs)
+       so downstream code has a consistent value to check against.
     """
     explicit_provider = os.getenv("LLM_PROVIDER")
     if explicit_provider:
         return explicit_provider.strip().lower()
 
-    if _is_real_value(ANTHROPIC_API_KEY):
-        return "anthropic"
     if _is_real_value(GITHUB_TOKEN):
         return "github"
+    if _is_real_value(ANTHROPIC_API_KEY):
+        return "anthropic"
 
     return "anthropic"
 
