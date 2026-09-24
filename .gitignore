@@ -24,12 +24,13 @@ env/
 .chroma/
 
 # Data files
-# Keep landing/ tracked for sample data
+# Keep landing/'s top-level sample data tracked, but NOT its per-run upload
+# subfolders (data/landing/<run_id>/...) -- the app writes each UI upload
+# into one of those, and they're ephemeral runtime data, not source.
 **/data/**/*.csv
 **/data/**/*.parquet
-!**/data/landing/**
-!**/data/landing/**/*.csv
-!**/data/landing/**/*.parquet
+!data/landing/*.csv
+!data/landing/*.parquet
 
 # Generated reports, audit logs, and agent traces
 data/reports/

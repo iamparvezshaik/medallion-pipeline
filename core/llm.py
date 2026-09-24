@@ -17,6 +17,7 @@ from core.config import (
     GITHUB_MODEL,
     GITHUB_TOKEN,
     LLM_PROVIDER,
+    _is_real_value,
 )
 
 
@@ -33,6 +34,20 @@ def make_llm(temperature: float = 0, caller: str = None):
             traceback.
     """
     provider = LLM_PROVIDER
+
+    # If NEITHER key is actually filled in (the common case before you have
+    # a real key at all), fail here with a message naming both options,
+    # instead of silently falling through to the "anthropic" default and
+    # letting Anthropic's SDK raise its own error -- which only mentions
+    # ANTHROPIC_API_KEY and says nothing about GITHUB_TOKEN, since that SDK
+    # has no idea this app supports a second provider.
+    if not _is_real_value(GITHUB_TOKEN) and not _is_real_value(ANTHROPIC_API_KEY):
+        context = f" (requested by {caller})" if caller else ""
+        raise ValueError(
+            f"No LLM API key is configured{context}. Set GITHUB_TOKEN (a GitHub "
+            "Copilot/Models token) or ANTHROPIC_API_KEY (a native Claude key) in "
+            "your .env file -- either one works."
+        )
 
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
