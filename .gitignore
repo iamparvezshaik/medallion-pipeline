@@ -31,9 +31,10 @@ env/
 !**/data/landing/**/*.csv
 !**/data/landing/**/*.parquet
 
-# Generated reports and audit logs
+# Generated reports, audit logs, and agent traces
 data/reports/
 audit_logs/
+data/traces/
 
 # OS files
 .DS_Store
