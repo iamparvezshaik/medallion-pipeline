@@ -20,7 +20,8 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from core.audit import AuditLogger
-from core.config import ANTHROPIC_API_KEY, ANTHROPIC_MODEL, LLM_PROVIDER, REPORTS_DIR
+from core.config import REPORTS_DIR
+from core.llm import make_llm
 from core.memory import store_document
 from core.observability import AgentTrace
 
@@ -135,17 +136,6 @@ def _make_reporter_tools(gold_paths: list[str], scratchpad: dict):
         return result_df.to_json(orient="records")
 
     return [inspect_gold_tables_tool, load_gold_data_tool, execute_query_tool]
-
-
-def _make_llm():
-    """Build the LLM client for whichever provider core.config resolved to."""
-    if LLM_PROVIDER == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-
-        return ChatAnthropic(
-            model=ANTHROPIC_MODEL, api_key=ANTHROPIC_API_KEY, temperature=0
-        )
-    raise ValueError(f"Unsupported LLM_PROVIDER for reporter agent: {LLM_PROVIDER!r}")
 
 
 def _extract_json(text: str) -> dict:
@@ -340,7 +330,7 @@ def run_reporter_agent(
     )
 
     try:
-        llm = _make_llm()
+        llm = make_llm()
         tools = _make_reporter_tools(gold_output_paths, scratchpad)
         agent = create_react_agent(llm, tools, prompt=SYSTEM_PROMPT)
 

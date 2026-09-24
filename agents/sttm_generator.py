@@ -24,7 +24,8 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from core.audit import AuditLogger
-from core.config import ANTHROPIC_API_KEY, ANTHROPIC_MODEL, LLM_PROVIDER, STTM_DIR
+from core.config import STTM_DIR
+from core.llm import make_llm
 from core.observability import AgentTrace
 
 SYSTEM_PROMPT = """You are the STTM (Source-to-Target Mapping) Agent in a retail data \
@@ -164,17 +165,6 @@ def _save_sttm(mappings: list[dict], layer: str, run_id: str, scratchpad: dict) 
     return json.dumps({"sttm_path": str(sttm_path), "row_count": len(df)})
 
 
-def _make_llm():
-    """Build the LLM client for whichever provider core.config resolved to."""
-    if LLM_PROVIDER == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-
-        return ChatAnthropic(
-            model=ANTHROPIC_MODEL, api_key=ANTHROPIC_API_KEY, temperature=0
-        )
-    raise ValueError(f"Unsupported LLM_PROVIDER for STTM agent: {LLM_PROVIDER!r}")
-
-
 def _preview_parquet_files(paths: list[str]) -> dict:
     """Build a lightweight schema + sample preview of a list of Parquet files,
     used as inspect_context_tool's payload for Silver/Gold STTM generation."""
@@ -223,7 +213,7 @@ def _run_sttm_agent(context: dict, goal: str, layer: str, run_id: str) -> str:
     trace.set_input(layer=layer, context_keys=list(context.keys()))
 
     try:
-        llm = _make_llm()
+        llm = make_llm()
         tools = _make_sttm_tools(context, run_id, scratchpad)
         agent = create_react_agent(llm, tools, prompt=SYSTEM_PROMPT)
 

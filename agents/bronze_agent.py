@@ -16,7 +16,8 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from core.audit import AuditLogger
-from core.config import ANTHROPIC_API_KEY, ANTHROPIC_MODEL, BRONZE_DIR, LLM_PROVIDER
+from core.config import BRONZE_DIR
+from core.llm import make_llm
 from core.observability import AgentTrace
 
 SYSTEM_PROMPT = """You are the Bronze Agent in a retail data pipeline built on a \
@@ -127,17 +128,6 @@ def _make_bronze_tools(file_paths: list[str], sttm_path: str, scratchpad: dict):
     return [inspect_task_tool, bronze_ingestion_tool]
 
 
-def _make_llm():
-    """Build the LLM client for whichever provider core.config resolved to."""
-    if LLM_PROVIDER == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-
-        return ChatAnthropic(
-            model=ANTHROPIC_MODEL, api_key=ANTHROPIC_API_KEY, temperature=0
-        )
-    raise ValueError(f"Unsupported LLM_PROVIDER for bronze agent: {LLM_PROVIDER!r}")
-
-
 def run_bronze_agent(
     file_paths: list[str],
     sttm_bronze_path: str,
@@ -163,7 +153,7 @@ def run_bronze_agent(
     )
 
     try:
-        llm = _make_llm()
+        llm = make_llm()
         tools = _make_bronze_tools(file_paths, sttm_bronze_path, scratchpad)
         agent = create_react_agent(llm, tools, prompt=SYSTEM_PROMPT)
 
