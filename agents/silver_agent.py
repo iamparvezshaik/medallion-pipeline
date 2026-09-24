@@ -51,7 +51,16 @@ def _cast_column(series: pd.Series, data_type: str) -> pd.Series:
         if data_type in ("float", "double", "number", "numeric"):
             return pd.to_numeric(series, errors="coerce")
         if data_type in ("boolean", "bool"):
-            return series.astype(str).str.strip().str.lower().isin(["true", "1", "yes"])
+            # Preserve nulls as null (a nullable "boolean" dtype), rather
+            # than letting a missing/blank value stringify to "nan"/"" and
+            # silently evaluate to False -- a blank cell means "unknown",
+            # not "definitely false".
+            is_null = series.isna()
+            result = (
+                series.astype(str).str.strip().str.lower().isin(["true", "1", "yes"]).astype("boolean")
+            )
+            result[is_null] = pd.NA
+            return result
         if data_type in ("date", "datetime", "timestamp"):
             # format="mixed" handles source columns that mix date formats
             # (e.g. "01/15/2024" alongside "2024-01-17") without nulling them out.
@@ -126,12 +135,14 @@ def _apply_text_normalisation(series: pd.Series, logic: str) -> pd.Series:
     return series
 
 
-def _make_silver_tools(bronze_paths: list[str], sttm_path: str, scratchpad: dict):
+def _make_silver_tools(bronze_paths: list[str], sttm_path: str, run_id: str, scratchpad: dict):
     """
     Tool factory: builds the Silver Agent's tools with the Bronze Parquet
     paths, the approved STTM path, and a shared scratchpad captured via
     closure.
     """
+    run_silver_dir = SILVER_DIR / run_id[:8]
+    run_silver_dir.mkdir(parents=True, exist_ok=True)
 
     @tool
     def inspect_task_tool() -> str:
@@ -209,7 +220,9 @@ def _make_silver_tools(bronze_paths: list[str], sttm_path: str, scratchpad: dict
             )
             out_df.insert(0, pk_name, range(1, len(out_df) + 1))
 
-            out_path = SILVER_DIR / f"{table_name}_silver.parquet"
+            # Namespaced by run_id -- see bronze_agent.py's identical comment
+            # for why this matters.
+            out_path = run_silver_dir / f"{table_name}_silver.parquet"
             out_df.to_parquet(out_path, index=False)
             output_paths.append(str(out_path))
 
@@ -245,8 +258,8 @@ def run_silver_agent(
     )
 
     try:
-        llm = make_llm()
-        tools = _make_silver_tools(bronze_output_paths, sttm_silver_path, scratchpad)
+        llm = make_llm(caller="silver agent")
+        tools = _make_silver_tools(bronze_output_paths, sttm_silver_path, run_id, scratchpad)
         agent = create_react_agent(llm, tools, prompt=SYSTEM_PROMPT)
 
         result = agent.invoke({"messages": [("human", goal)]})

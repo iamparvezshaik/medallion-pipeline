@@ -8,6 +8,7 @@ saved to memory (core.memory.store_document) so its content can be looked
 up later.
 """
 
+import html
 import json
 import os
 import re
@@ -249,6 +250,13 @@ def _build_table_html(rows: list[dict]) -> str:
 def _build_report_html(business_intent: str, summary: str, chart_html: str, table_html: str, run_id: str) -> str:
     """Assemble the full standalone HTML report page."""
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    # business_intent is raw user input and summary is LLM-generated text --
+    # both get rendered by streamlit_app.py via st.iframe(), which (per
+    # Streamlit's own docs) executes embedded JavaScript with same-origin
+    # access to the app. Escape both before embedding so neither can inject
+    # markup/script into the report page.
+    business_intent = html.escape(business_intent)
+    summary = html.escape(summary)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -330,7 +338,7 @@ def run_reporter_agent(
     )
 
     try:
-        llm = make_llm()
+        llm = make_llm(caller="reporter agent")
         tools = _make_reporter_tools(gold_output_paths, scratchpad)
         agent = create_react_agent(llm, tools, prompt=SYSTEM_PROMPT)
 

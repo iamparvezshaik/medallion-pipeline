@@ -24,10 +24,47 @@ this file's API stays identical.
 """
 
 import json
+import os
+import time
 
 from core.config import CHROMA_DIR
 
 _STORE_PATH = CHROMA_DIR / "memory_store.json"
+_LOCK_PATH = CHROMA_DIR / "memory_store.json.lock"
+_LOCK_TIMEOUT_SECONDS = 5
+_LOCK_POLL_INTERVAL_SECONDS = 0.05
+
+
+class _FileLock:
+    """
+    A minimal, dependency-free mutual-exclusion lock, implemented via
+    exclusive file creation (os.O_CREAT | os.O_EXCL fails if the file
+    already exists). Not suitable for high-contention or distributed use,
+    but enough to stop two near-simultaneous store_document() calls (e.g.
+    two Streamlit sessions finishing a run at the same moment) from each
+    loading the same snapshot and one silently overwriting the other's
+    write. If the lock can't be acquired within the timeout (e.g. a stale
+    lock file left behind by a crashed process), proceeds without it rather
+    than hanging the pipeline forever.
+    """
+
+    def __enter__(self):
+        deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
+        while True:
+            try:
+                fd = os.open(_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.close(fd)
+                return self
+            except FileExistsError:
+                if time.monotonic() > deadline:
+                    return self
+                time.sleep(_LOCK_POLL_INTERVAL_SECONDS)
+
+    def __exit__(self, *exc_info):
+        try:
+            os.remove(_LOCK_PATH)
+        except FileNotFoundError:
+            pass
 
 
 def _load() -> dict:
@@ -40,9 +77,16 @@ def _load() -> dict:
 
 
 def _save(store: dict):
-    """Write the whole memory store back to disk."""
-    with open(_STORE_PATH, "w", encoding="utf-8") as f:
+    """
+    Write the whole memory store back to disk atomically: write to a
+    temporary file first, then rename it over the real path. os.replace()
+    is atomic on both Windows and POSIX, so a reader can never observe a
+    half-written file, even if this process is interrupted mid-write.
+    """
+    tmp_path = _STORE_PATH.with_suffix(".json.tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(store, f, indent=2)
+    os.replace(tmp_path, _STORE_PATH)
 
 
 def store_document(doc_id: str, content: str, **metadata):
@@ -57,9 +101,10 @@ def store_document(doc_id: str, content: str, **metadata):
         **metadata: any extra fields worth filtering on later, e.g.
             run_id="abc123", doc_type="business_intent".
     """
-    store = _load()
-    store[doc_id] = {"content": content, "metadata": metadata}
-    _save(store)
+    with _FileLock():
+        store = _load()
+        store[doc_id] = {"content": content, "metadata": metadata}
+        _save(store)
 
 
 def get_document(doc_id: str) -> dict | None:

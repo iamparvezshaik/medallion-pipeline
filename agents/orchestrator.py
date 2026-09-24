@@ -38,13 +38,17 @@ from core.audit import AuditLogger
 from core.state import PipelineState
 
 
-def start_pipeline(uploaded_files: list[str], business_intent: str) -> PipelineState:
+def start_pipeline(
+    uploaded_files: list[str], business_intent: str, run_id: str = None
+) -> PipelineState:
     """
-    Begin a new pipeline run: generate a run_id, create the PipelineState,
-    and immediately run Phase 1.
+    Begin a new pipeline run: generate a run_id (unless the caller already
+    generated one -- e.g. Streamlit needs it up front to namespace where
+    uploaded files get saved, before this function runs), create the
+    PipelineState, and immediately run Phase 1.
     """
     state = PipelineState(
-        run_id=str(uuid.uuid4()),
+        run_id=run_id or str(uuid.uuid4()),
         status="running",
         uploaded_files=uploaded_files,
         business_intent=business_intent,

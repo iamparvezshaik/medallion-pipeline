@@ -47,7 +47,16 @@ def _cast_column(series: pd.Series, data_type: str) -> pd.Series:
         if data_type in ("float", "double", "number", "numeric"):
             return pd.to_numeric(series, errors="coerce")
         if data_type in ("boolean", "bool"):
-            return series.astype(str).str.strip().str.lower().isin(["true", "1", "yes"])
+            # Preserve nulls as null (a nullable "boolean" dtype), rather
+            # than letting a missing/blank value stringify to "nan"/"" and
+            # silently evaluate to False -- a blank cell means "unknown",
+            # not "definitely false".
+            is_null = series.isna()
+            result = (
+                series.astype(str).str.strip().str.lower().isin(["true", "1", "yes"]).astype("boolean")
+            )
+            result[is_null] = pd.NA
+            return result
         if data_type in ("date", "datetime", "timestamp"):
             # format="mixed" lets pandas infer each value's format independently,
             # which matters for real-world source data that mixes formats within
@@ -59,11 +68,13 @@ def _cast_column(series: pd.Series, data_type: str) -> pd.Series:
         return series
 
 
-def _make_bronze_tools(file_paths: list[str], sttm_path: str, scratchpad: dict):
+def _make_bronze_tools(file_paths: list[str], sttm_path: str, run_id: str, scratchpad: dict):
     """
     Tool factory: builds the Bronze Agent's tools with file_paths, the approved
     STTM path, and a shared scratchpad captured via closure.
     """
+    run_bronze_dir = BRONZE_DIR / run_id[:8]
+    run_bronze_dir.mkdir(parents=True, exist_ok=True)
 
     @tool
     def inspect_task_tool() -> str:
@@ -100,6 +111,22 @@ def _make_bronze_tools(file_paths: list[str], sttm_path: str, scratchpad: dict):
             if rules.empty:
                 out_df = df.copy()
             else:
+                duplicate_targets = rules["target_column"][rules["target_column"].duplicated()].tolist()
+                if duplicate_targets:
+                    # Two rules mapping different source columns onto the
+                    # same target_column would make df.rename() silently
+                    # produce a duplicate-named column instead of erroring,
+                    # which then corrupts (or crashes) every later step that
+                    # does out_df[target_col]. This can happen if a human
+                    # edits the STTM in the Streamlit approval screen and
+                    # introduces a typo -- fail loudly here instead.
+                    raise ValueError(
+                        f"Bronze STTM for {source_table!r} maps more than one "
+                        f"source_column to the same target_column: {duplicate_targets}. "
+                        "Fix the approved STTM so every target_column is unique "
+                        "per table."
+                    )
+
                 rename_map = {
                     rule["source_column"]: rule["target_column"]
                     for _, rule in rules.iterrows()
@@ -118,7 +145,10 @@ def _make_bronze_tools(file_paths: list[str], sttm_path: str, scratchpad: dict):
             out_df["_bronze_ingested_at"] = datetime.now(timezone.utc).isoformat()
             out_df["_source_file"] = os.path.basename(path)
 
-            out_path = BRONZE_DIR / f"{source_table}_bronze.parquet"
+            # Namespaced by run_id so a second run touching a same-named
+            # source table can't overwrite this run's Bronze output while it
+            # is still waiting at a later HITL approval gate.
+            out_path = run_bronze_dir / f"{source_table}_bronze.parquet"
             out_df.to_parquet(out_path, index=False)
             output_paths.append(str(out_path))
 
@@ -153,8 +183,8 @@ def run_bronze_agent(
     )
 
     try:
-        llm = make_llm()
-        tools = _make_bronze_tools(file_paths, sttm_bronze_path, scratchpad)
+        llm = make_llm(caller="bronze agent")
+        tools = _make_bronze_tools(file_paths, sttm_bronze_path, run_id, scratchpad)
         agent = create_react_agent(llm, tools, prompt=SYSTEM_PROMPT)
 
         result = agent.invoke({"messages": [("human", goal)]})

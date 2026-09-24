@@ -168,7 +168,7 @@ def run_profiler_agent(
     )
 
     try:
-        llm = make_llm()
+        llm = make_llm(caller="profiler agent")
         tools = _make_profiler_tools(file_paths, scratchpad)
         agent = create_react_agent(llm, tools, prompt=SYSTEM_PROMPT)
 
@@ -188,8 +188,11 @@ def run_profiler_agent(
             "quality_notes": synthesis.get("quality_notes", []),
         }
 
+        # Include run_id (not just the date) in the filename -- two runs
+        # started on the same UTC day would otherwise silently overwrite
+        # each other's profile.
         date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
-        profile_path = PROFILES_DIR / f"profile_combined_{date_str}.json"
+        profile_path = PROFILES_DIR / f"profile_combined_{date_str}_{run_id[:8]}.json"
         with open(profile_path, "w", encoding="utf-8") as f:
             json.dump(combined_profile, f, indent=2)
 

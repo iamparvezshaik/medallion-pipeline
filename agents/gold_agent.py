@@ -53,7 +53,16 @@ def _cast_column(series: pd.Series, data_type: str) -> pd.Series:
         if data_type in ("float", "double", "number", "numeric"):
             return pd.to_numeric(series, errors="coerce")
         if data_type in ("boolean", "bool"):
-            return series.astype(str).str.strip().str.lower().isin(["true", "1", "yes"])
+            # Preserve nulls as null (a nullable "boolean" dtype), rather
+            # than letting a missing/blank value stringify to "nan"/"" and
+            # silently evaluate to False -- a blank cell means "unknown",
+            # not "definitely false".
+            is_null = series.isna()
+            result = (
+                series.astype(str).str.strip().str.lower().isin(["true", "1", "yes"]).astype("boolean")
+            )
+            result[is_null] = pd.NA
+            return result
         if data_type in ("date", "datetime", "timestamp"):
             return pd.to_datetime(series, errors="coerce", format="mixed")
         return series.astype(str)
@@ -123,11 +132,14 @@ def _join_source_tables(source_tables: list[str], silver_frames: dict) -> pd.Dat
     return merged
 
 
-def _make_gold_tools(silver_paths: list[str], sttm_path: str, scratchpad: dict):
+def _make_gold_tools(silver_paths: list[str], sttm_path: str, run_id: str, scratchpad: dict):
     """
     Tool factory: builds the Gold Agent's tools with the Silver Parquet paths,
     the approved STTM path, and a shared scratchpad captured via closure.
     """
+    run_gold_dir = GOLD_DIR / run_id[:8]
+    run_gold_dir.mkdir(parents=True, exist_ok=True)
+
     silver_frames = {
         _strip_silver_suffix(os.path.splitext(os.path.basename(p))[0]): pd.read_parquet(p)
         for p in silver_paths
@@ -186,7 +198,9 @@ def _make_gold_tools(silver_paths: list[str], sttm_path: str, scratchpad: dict):
 
             out_df.insert(0, "pk_gold_id", range(1, len(out_df) + 1))
 
-            out_path = GOLD_DIR / f"{target_table}.parquet"
+            # Namespaced by run_id -- see bronze_agent.py's identical comment
+            # for why this matters.
+            out_path = run_gold_dir / f"{target_table}.parquet"
             out_df.to_parquet(out_path, index=False)
             output_paths.append(str(out_path))
 
@@ -223,8 +237,8 @@ def run_gold_agent(
     )
 
     try:
-        llm = make_llm()
-        tools = _make_gold_tools(silver_output_paths, sttm_gold_path, scratchpad)
+        llm = make_llm(caller="gold agent")
+        tools = _make_gold_tools(silver_output_paths, sttm_gold_path, run_id, scratchpad)
         agent = create_react_agent(llm, tools, prompt=SYSTEM_PROMPT)
 
         result = agent.invoke({"messages": [("human", goal)]})

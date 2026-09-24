@@ -72,14 +72,33 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-# GitHub Models - optional provider.
+# GitHub Models - optional provider. GITHUB_MODEL uses the GA endpoint's
+# publisher-prefixed naming (e.g. "openai/gpt-4.1-mini"), so GITHUB_BASE_URL
+# must point at the matching GA inference endpoint (models.github.ai) --
+# NOT the older preview endpoint (models.inference.ai.azure.com), which used
+# bare model names and doesn't recognize publisher-prefixed IDs.
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_MODEL = os.getenv("GITHUB_MODEL", "openai/gpt-4.1-mini")
-GITHUB_BASE_URL = "https://models.inference.ai.azure.com"
+GITHUB_BASE_URL = "https://models.github.ai/inference"
 
 # --------------------------------------------------------------------------
 # LLM provider auto-detection
 # --------------------------------------------------------------------------
+
+
+def _is_real_value(value: str) -> bool:
+    """
+    True if value looks like an actual secret rather than an unfilled
+    .env.example placeholder (e.g. "your_anthropic_api_key_here"). Every
+    placeholder in .env.example follows that "your_..._here" pattern, so a
+    key left untouched is still a non-empty (truthy) Python string --
+    without this check, _detect_llm_provider() below would treat an
+    unfilled placeholder as a real, configured key.
+    """
+    if not value:
+        return False
+    stripped = value.strip()
+    return bool(stripped) and not (stripped.startswith("your_") and stripped.endswith("_here"))
 
 
 def _detect_llm_provider() -> str:
@@ -87,8 +106,12 @@ def _detect_llm_provider() -> str:
     Decide which LLM provider to use.
 
     1. If LLM_PROVIDER is explicitly set in the environment, use that.
-    2. Otherwise, pick the first provider (in preference order) that has an
-       API key configured: anthropic > github > openai > groq > gemini.
+    2. Otherwise, pick the first provider (in preference order) that has a
+       REAL API key configured (not just an unfilled .env.example
+       placeholder): anthropic > github. These are the two providers
+       core.llm.make_llm() actually implements -- there's no point
+       detecting a provider (e.g. a filled-in GROQ_API_KEY) that the
+       pipeline can't actually build a client for.
     3. If nothing is configured, fall back to "anthropic" (the project
        default) so downstream code has a consistent value to check against.
     """
@@ -96,16 +119,10 @@ def _detect_llm_provider() -> str:
     if explicit_provider:
         return explicit_provider.strip().lower()
 
-    if ANTHROPIC_API_KEY:
+    if _is_real_value(ANTHROPIC_API_KEY):
         return "anthropic"
-    if GITHUB_TOKEN:
+    if _is_real_value(GITHUB_TOKEN):
         return "github"
-    if OPENAI_API_KEY:
-        return "openai"
-    if GROQ_API_KEY:
-        return "groq"
-    if GOOGLE_API_KEY:
-        return "gemini"
 
     return "anthropic"
 

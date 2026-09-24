@@ -213,7 +213,7 @@ def _run_sttm_agent(context: dict, goal: str, layer: str, run_id: str) -> str:
     trace.set_input(layer=layer, context_keys=list(context.keys()))
 
     try:
-        llm = make_llm()
+        llm = make_llm(caller=f"sttm_{layer} agent")
         tools = _make_sttm_tools(context, run_id, scratchpad)
         agent = create_react_agent(llm, tools, prompt=SYSTEM_PROMPT)
 
