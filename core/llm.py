@@ -44,9 +44,9 @@ def make_llm(temperature: float = 0, caller: str = None):
     if not _is_real_value(GITHUB_TOKEN) and not _is_real_value(ANTHROPIC_API_KEY):
         context = f" (requested by {caller})" if caller else ""
         raise ValueError(
-            f"No LLM API key is configured{context}. Set GITHUB_TOKEN (a GitHub "
-            "Copilot/Models token) or ANTHROPIC_API_KEY (a native Claude key) in "
-            "your .env file -- either one works."
+            f"No LLM API key is configured{context}. Set GITHUB_TOKEN (your GitHub "
+            "Copilot token -- the primary provider for this project) in your .env "
+            "file. If you have a native Claude key instead, set ANTHROPIC_API_KEY."
         )
 
     if provider == "anthropic":
